@@ -1,6 +1,35 @@
 import os
-from utils import get_changed_code, filter_devops_files
+from utils import get_changed_code
 from github import post_pr_comment
+
+
+# 🔥 Ignore scanner files (VERY IMPORTANT)
+def ignore_scanner_files(diff):
+    result = []
+    skip = False
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            file_name = line.split(" b/")[-1]
+
+            if file_name.startswith("app/") or file_name.startswith(".github/"):
+                skip = True
+            else:
+                skip = False
+
+        if not skip:
+            result.append(line)
+
+    return "\n".join(result)
+
+
+# 🔍 Keep only added lines
+def keep_added_lines(diff):
+    lines = []
+    for line in diff.split("\n"):
+        if line.startswith("+") and not line.startswith("+++"):
+            lines.append(line[1:])
+    return "\n".join(lines)
 
 
 # 🔍 Parse diff into file + line mapping
@@ -28,7 +57,7 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Advanced analyzer (file-aware 💀)
+# 🔎 Analyzer
 def analyze_files(files):
     issues = []
     warnings = []
@@ -38,117 +67,69 @@ def analyze_files(files):
         for line_no, code in lines:
             code_lower = code.lower()
 
-            # =========================
-            # 🔴 CRITICAL ISSUES
-            # =========================
-
+            # 🔴 CRITICAL
             if "0.0.0.0/0" in code:
                 issues.append((file, line_no, code,
-                               "Open access to entire internet",
-                               "Restrict CIDR range (e.g., 192.168.x.x/24)"))
+                               "Open to internet",
+                               "Restrict CIDR range"))
 
             if "public-read" in code or "public-read-write" in code:
                 issues.append((file, line_no, code,
                                "Public access enabled",
-                               "Disable public access and enforce private ACL"))
+                               "Disable public access"))
 
-            if "password=" in code or "admin123" in code:
+            if "password=" in code_lower or "admin123" in code_lower:
                 issues.append((file, line_no, code,
-                               "Hardcoded credentials detected",
-                               "Use environment variables or secrets manager"))
+                               "Hardcoded credentials",
+                               "Use secrets manager"))
 
-            if "privileged: true" in code:
+            if "privileged: true" in code_lower:
                 issues.append((file, line_no, code,
                                "Privileged container",
-                               "Remove privileged mode"))
+                               "Disable privileged mode"))
 
-            # =========================
-            # 🐳 DOCKERFILE RULES
-            # =========================
+            # 🐳 Docker
             if file.lower().endswith("dockerfile"):
-                if "latest" in code:
+                if "latest" in code_lower:
                     issues.append((file, line_no, code,
-                                   "Using latest Docker image",
-                                   "Pin to specific version (e.g., nginx:1.25)"))
+                                   "Using latest image",
+                                   "Pin version"))
 
-                if "env password" in code_lower:
-                    issues.append((file, line_no, code,
-                                   "Hardcoded ENV secret",
-                                   "Use runtime secrets"))
-
-            # =========================
-            # ☸️ KUBERNETES YAML RULES
-            # =========================
+            # ☸️ Kubernetes
             if file.endswith(".yaml") or file.endswith(".yml"):
-                if "privileged: true" in code:
-                    issues.append((file, line_no, code,
-                                   "Privileged container",
-                                   "Disable privileged mode"))
-
-                if "containerport" in code_lower:
-                    warnings.append((file, line_no, code,
-                                     "Exposed container port",
-                                     "Restrict access using services/network policies"))
-
                 if "password" in code_lower:
                     issues.append((file, line_no, code,
-                                   "Hardcoded secret in YAML",
+                                   "Secret in YAML",
                                    "Use Kubernetes secrets"))
 
-            # =========================
-            # 🌍 TERRAFORM RULES
-            # =========================
+            # 🌍 Terraform
             if file.endswith(".tf"):
-                if "0.0.0.0/0" in code:
-                    issues.append((file, line_no, code,
-                                   "Open security group",
-                                   "Restrict CIDR range"))
-
                 if "public-read" in code:
                     issues.append((file, line_no, code,
                                    "Public S3 bucket",
                                    "Disable public access"))
 
-            # =========================
-            # 🟠 WARNINGS (GENERIC)
-            # =========================
-            if "latest" in code:
+            # 🟠 WARNINGS
+            if "latest" in code_lower:
                 warnings.append((file, line_no, code,
                                  "Using latest tag",
-                                 "Pin to a specific version"))
+                                 "Pin version"))
 
-            if "versioning" in code and "false" in code:
+            if "versioning" in code_lower and "false" in code_lower:
                 warnings.append((file, line_no, code,
                                  "Versioning disabled",
                                  "Enable versioning"))
 
-            if 'cpu: "0"' in code:
-                warnings.append((file, line_no, code,
-                                 "Invalid CPU config",
-                                 "Use valid CPU request (e.g., 100m)"))
-
-            if "print(" in code:
-                warnings.append((file, line_no, code,
-                                 "Debug print statement",
-                                 "Remove before production"))
-
-            # =========================
             # 🟢 SUGGESTIONS
-            # =========================
-            if "aws_instance" in code:
+            if "aws_instance" in code_lower:
                 suggestions.append((file, line_no,
                                     "Use IAM roles",
                                     "Avoid static credentials"))
 
-            if "dockerfile" in file.lower():
-                suggestions.append((file, line_no,
-                                    "Use minimal base image",
-                                    "Reduce image size & attack surface"))
-
     return issues, warnings, suggestions
 
 
-# 📊 Score system
+# 📊 Score
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
@@ -169,22 +150,22 @@ def format_review(issues, warnings, suggestions):
             if len(item) == 5:
                 file, line, code, problem, solution = item
                 text += f"\n📄 {file} | Line {line}\n"
-                text += f"❌ Issue: {problem}\n"
-                text += f"💡 Fix: {solution}\n"
-                text += f"🔍 Code: `{code.strip()}`\n"
+                text += f"❌ {problem}\n"
+                text += f"💡 {solution}\n"
+                text += f"🔍 `{code.strip()}`\n"
 
             elif len(item) == 4:
                 file, line, problem, solution = item
                 text += f"\n📄 {file} | Line {line}\n"
-                text += f"💡 Suggestion: {problem}\n"
+                text += f"💡 {problem}\n"
                 text += f"👉 {solution}\n"
 
         return text + "\n"
 
     return f"""
-## 🤖 AI DevOps Advanced Review
+## 🤖 AI DevOps Review
 
-### 📊 Security Score: {score}/10
+### 📊 Score: {score}/10
 
 {format_items('## 🔴 Critical Issues', issues)}
 
@@ -194,24 +175,24 @@ def format_review(issues, warnings, suggestions):
 """.strip()
 
 
-# 🚀 Main
-def review_code(diff):
-    if not diff.strip():
-        return "⚠️ No changes detected."
-
-    files = parse_diff(diff)
-    issues, warnings, suggestions = analyze_files(files)
-
-    return format_review(issues, warnings, suggestions)
-
-
+# 🚀 MAIN
 if __name__ == "__main__":
-    print("🚀 Running PRO AI Reviewer...")
+    print("🚀 Running AI Reviewer...")
 
     full_diff = get_changed_code()
-    filtered_code = filter_devops_files(full_diff)
 
-    review = review_code(filtered_code)
+    # 💀 FIX 1: Ignore scanner files
+    full_diff = ignore_scanner_files(full_diff)
+
+    # 💀 FIX 2: Keep only new lines
+    filtered_diff = keep_added_lines(full_diff)
+
+    if not filtered_diff.strip():
+        review = "✅ No relevant DevOps changes found."
+    else:
+        files = parse_diff(full_diff)
+        issues, warnings, suggestions = analyze_files(files)
+        review = format_review(issues, warnings, suggestions)
 
     print("\n=== 🤖 REVIEW ===")
     print(review)
