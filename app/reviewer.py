@@ -3,8 +3,8 @@ from utils import get_changed_code
 from github import post_pr_comment, post_inline_comment, add_labels
 
 
-# 🔥 Ignore scanner files
-def ignore_scanner_files(diff):
+# 🔥 Only scan PR-Scanner folder
+def keep_only_target_folder(diff):
     result = []
     skip = False
 
@@ -12,10 +12,10 @@ def ignore_scanner_files(diff):
         if line.startswith("diff --git"):
             file_name = line.split(" b/")[-1]
 
-            if file_name.startswith("app/") or file_name.startswith(".github/"):
-                skip = True
-            else:
+            if file_name.startswith("PR-Scanner/"):
                 skip = False
+            else:
+                skip = True
 
         if not skip:
             result.append(line)
@@ -48,7 +48,7 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Analyzer (NO DUPLICATES 💀)
+# 🔎 Analyzer (NO DUPLICATES)
 def analyze_files(files):
     issues = []
     warnings = []
@@ -154,21 +154,6 @@ def file_summary(issues):
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
-    def format_items(title, items):
-        if not items:
-            return f"{title}\n- None\n"
-
-        text = f"{title}\n"
-        for item in items:
-            if len(item) == 5:
-                file, line, code, problem, solution = item
-                text += f"\n📄 {file} | Line {line}\n"
-                text += f"❌ {problem}\n"
-                text += f"💡 {solution}\n"
-                text += f"🔍 `{code.strip()}`\n"
-
-        return text + "\n"
-
     return f"""
 ## 🤖 AI DevOps Review
 
@@ -176,11 +161,9 @@ def format_review(issues, warnings, suggestions):
 
 {file_summary(issues)}
 
-{format_items('## 🔴 Critical Issues', issues)}
-
-{format_items('## 🟠 Warnings', warnings)}
-
-{format_items('## 🟢 Suggestions', suggestions)}
+🔴 Critical Issues: {len(issues)}
+🟠 Warnings: {len(warnings)}
+🟢 Suggestions: {len(suggestions)}
 """.strip()
 
 
@@ -189,19 +172,24 @@ if __name__ == "__main__":
     print("🚀 Running AI Reviewer...")
 
     full_diff = get_changed_code()
-    full_diff = ignore_scanner_files(full_diff)
+
+    # 💀 ONLY scan PR-Scanner folder
+    full_diff = keep_only_target_folder(full_diff)
 
     files = parse_diff(full_diff)
 
-    if not files:
+    if not files or all(len(v) == 0 for v in files.values()):
         review = "✅ No relevant DevOps changes found."
     else:
         issues, warnings, suggestions = analyze_files(files)
         review = format_review(issues, warnings, suggestions)
 
-        # 💀 INLINE COMMENTS
-        for file, line, code, problem, solution in issues:
-            post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+        # 💀 SAFE INLINE COMMENTS
+        for file, line, code, problem, solution in issues[:10]:  # limit for safety
+            try:
+                post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+            except:
+                print("⚠️ Inline comment failed (skipping)")
 
         # 🏷️ LABELS
         labels = []
@@ -210,7 +198,8 @@ if __name__ == "__main__":
         if warnings:
             labels.append("needs-fix")
 
-        add_labels(labels)
+        if labels:
+            add_labels(labels)
 
     print("\n=== 🤖 REVIEW ===")
     print(review)
