@@ -66,7 +66,6 @@ def analyze_files(files):
         for line_no, code in lines:
             code_lower = code.lower()
 
-            # 🔴 CRITICAL
             if "0.0.0.0/0" in code:
                 add_unique(issues, (file, line_no, code,
                                     "Open to internet",
@@ -87,28 +86,21 @@ def analyze_files(files):
                                     "Privileged container",
                                     "Disable privileged mode"))
 
-            # 🐳 Docker
-            if file.lower().endswith("dockerfile"):
-                if "latest" in code_lower:
-                    add_unique(issues, (file, line_no, code,
-                                        "Using latest image",
-                                        "Pin version"))
+            if file.lower().endswith("dockerfile") and "latest" in code_lower:
+                add_unique(issues, (file, line_no, code,
+                                    "Using latest image",
+                                    "Pin version"))
 
-            # ☸️ Kubernetes
-            if file.endswith(".yaml") or file.endswith(".yml"):
-                if "password" in code_lower:
-                    add_unique(issues, (file, line_no, code,
-                                        "Secret in YAML",
-                                        "Use Kubernetes secrets"))
+            if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
+                add_unique(issues, (file, line_no, code,
+                                    "Secret in YAML",
+                                    "Use Kubernetes secrets"))
 
-            # 🌍 Terraform
-            if file.endswith(".tf"):
-                if "public-read" in code:
-                    add_unique(issues, (file, line_no, code,
-                                        "Public S3 bucket",
-                                        "Disable public access"))
+            if file.endswith(".tf") and "public-read" in code:
+                add_unique(issues, (file, line_no, code,
+                                    "Public S3 bucket",
+                                    "Disable public access"))
 
-            # 🟠 WARNINGS
             if "latest" in code_lower:
                 add_unique(warnings, (file, line_no, code,
                                      "Using latest tag",
@@ -119,7 +111,6 @@ def analyze_files(files):
                                      "Versioning disabled",
                                      "Enable versioning"))
 
-            # 🟢 SUGGESTIONS
             if "aws_instance" in code_lower:
                 add_unique(suggestions, (file, line_no,
                                         "Use IAM roles",
@@ -130,13 +121,11 @@ def analyze_files(files):
 
 # 📊 Score
 def calculate_score(issues, warnings):
-    score = 10
-    score -= len(issues) * 2
-    score -= len(warnings)
+    score = 10 - (len(issues) * 2) - len(warnings)
     return max(score, 1)
 
 
-# 📊 File-wise summary
+# 📊 File summary
 def file_summary(issues):
     summary = {}
     for item in issues:
@@ -150,7 +139,7 @@ def file_summary(issues):
     return text
 
 
-# 🧠 Format review
+# 🧠 Format
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -172,8 +161,6 @@ if __name__ == "__main__":
     print("🚀 Running AI Reviewer...")
 
     full_diff = get_changed_code()
-
-    # 💀 ONLY scan PR-Scanner folder
     full_diff = keep_only_target_folder(full_diff)
 
     files = parse_diff(full_diff)
@@ -184,14 +171,13 @@ if __name__ == "__main__":
         issues, warnings, suggestions = analyze_files(files)
         review = format_review(issues, warnings, suggestions)
 
-        # 💀 SAFE INLINE COMMENTS
-        for file, line, code, problem, solution in issues[:10]:  # limit for safety
+        # 💀 INLINE COMMENTS (SAFE)
+        for file, line, code, problem, solution in issues[:10]:
             try:
                 post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
             except:
-                print("⚠️ Inline comment failed (skipping)")
+                print("⚠️ Inline failed")
 
-        # 🏷️ LABELS
         labels = []
         if issues:
             labels.append("security-risk")
@@ -201,7 +187,7 @@ if __name__ == "__main__":
         if labels:
             add_labels(labels)
 
-    print("\n=== 🤖 REVIEW ===")
+    print("\n=== REVIEW ===")
     print(review)
 
     post_pr_comment(review)
