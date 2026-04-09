@@ -3,137 +3,155 @@ from utils import get_changed_code, filter_devops_files
 from github import post_pr_comment
 
 
-# 🔍 Universal analyzer
-def analyze_code(code):
+# 🔍 Parse diff into file + line mapping
+def parse_diff(diff):
+    files = {}
+    current_file = None
+    line_number = 0
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            current_file = line.split(" b/")[-1]
+            files[current_file] = []
+            line_number = 0
+
+        elif line.startswith("@@"):
+            try:
+                line_number = int(line.split("+")[1].split(",")[0])
+            except:
+                line_number = 0
+
+        elif line.startswith("+") and not line.startswith("+++"):
+            files[current_file].append((line_number, line[1:]))
+            line_number += 1
+
+    return files
+
+
+# 🔎 Advanced analyzer with line numbers
+def analyze_files(files):
     issues = []
     warnings = []
     suggestions = []
 
-    code_lower = code.lower()
+    for file, lines in files.items():
+        for line_no, code in lines:
+            code_lower = code.lower()
 
-    # =========================
-    # 🔴 CRITICAL SECURITY ISSUES
-    # =========================
+            # 🔴 Critical Issues
+            if "0.0.0.0/0" in code:
+                issues.append((file, line_no, code,
+                               "Open access to entire internet",
+                               "Restrict CIDR range (e.g., 192.168.x.x/24)"))
 
-    if "0.0.0.0/0" in code:
-        issues.append("Open access detected (0.0.0.0/0) - security risk")
+            if "public-read" in code or "public-read-write" in code:
+                issues.append((file, line_no, code,
+                               "Public S3 bucket access",
+                               "Set ACL to private and enable block public access"))
 
-    if "public-read" in code or "public-read-write" in code:
-        issues.append("Public access enabled on resource")
+            if "password=" in code or "admin123" in code:
+                issues.append((file, line_no, code,
+                               "Hardcoded credentials",
+                               "Use environment variables or secrets manager"))
 
-    if "password=" in code or "secret" in code_lower or "api_key" in code_lower:
-        issues.append("Hardcoded secret or credential detected")
+            if "privileged: true" in code:
+                issues.append((file, line_no, code,
+                               "Privileged container",
+                               "Remove privileged mode unless absolutely required"))
 
-    if "privileged: true" in code:
-        issues.append("Container running in privileged mode")
+            # 🟠 Warnings
+            if "latest" in code:
+                warnings.append((file, line_no, code,
+                                 "Using latest tag",
+                                 "Pin to a specific version"))
 
-    if "latest" in code and "image" in code_lower:
-        warnings.append("Using latest tag for container image")
+            if "versioning" in code and "false" in code:
+                warnings.append((file, line_no, code,
+                                 "Versioning disabled",
+                                 "Enable versioning for data safety"))
 
-    # =========================
-    # 🟠 CONFIG / DEVOPS WARNINGS
-    # =========================
+            if 'cpu: "0"' in code:
+                warnings.append((file, line_no, code,
+                                 "Invalid CPU config",
+                                 "Set valid CPU request like 100m"))
 
-    if "versioning" in code and "false" in code:
-        warnings.append("Versioning is disabled")
-
-    if "cpu" in code and '"0"' in code:
-        warnings.append("Invalid CPU allocation detected")
-
-    if "ami" in code and "123" in code:
-        warnings.append("Hardcoded AMI might be invalid")
-
-    # =========================
-    # 🟡 GENERAL CODE ISSUES
-    # =========================
-
-    if "print(" in code:
-        warnings.append("Debug print statements found")
-
-    if "todo" in code_lower:
-        warnings.append("TODO comments present in code")
-
-    if "except:" in code:
-        warnings.append("Generic exception handling used")
-
-    # =========================
-    # 🟢 BEST PRACTICE SUGGESTIONS
-    # =========================
-
-    if "aws_instance" in code:
-        suggestions.append("Use IAM roles instead of static credentials")
-
-    if "dockerfile" in code_lower:
-        suggestions.append("Use minimal base image and fixed versions")
-
-    if "env" in code_lower:
-        suggestions.append("Avoid exposing sensitive data via environment variables")
-
-    if not suggestions:
-        suggestions.append("Follow security and least privilege principles")
+            # 🟢 Suggestions
+            if "aws_instance" in code:
+                suggestions.append((file, line_no,
+                                    "Use IAM roles",
+                                    "Avoid hardcoded credentials"))
 
     return issues, warnings, suggestions
 
 
-# 📊 Score system
+# 📊 Score
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
-    score -= len(warnings) * 1
+    score -= len(warnings)
     return max(score, 1)
 
 
-# 🧠 Format output
+# 🧠 Format output (PRO STYLE 💀)
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
-    def format_section(title, items):
+    def format_items(title, items):
         if not items:
-            return f"{title}\n- None"
-        return f"{title}\n" + "\n".join([f"- {item}" for item in items])
+            return f"{title}\n- None\n"
+
+        text = f"{title}\n"
+        for item in items:
+            if len(item) == 5:
+                file, line, code, problem, solution = item
+                text += f"\n📄 {file} | Line {line}\n"
+                text += f"❌ Issue: {problem}\n"
+                text += f"💡 Fix: {solution}\n"
+                text += f"🔍 Code: `{code.strip()}`\n"
+
+            elif len(item) == 4:
+                file, line, problem, solution = item
+                text += f"\n📄 {file} | Line {line}\n"
+                text += f"💡 Suggestion: {problem}\n"
+                text += f"👉 {solution}\n"
+
+        return text + "\n"
 
     review = f"""
-## 🤖 AI DevOps + Code Review
+## 🤖 AI DevOps Advanced Review
 
-### 📊 Overall Score: {score}/10
+### 📊 Security Score: {score}/10
 
-{format_section('## 🔴 Critical Issues', issues)}
+{format_items('## 🔴 Critical Issues', issues)}
 
-{format_section('## 🟠 Warnings', warnings)}
+{format_items('## 🟠 Warnings', warnings)}
 
-{format_section('## 🟢 Suggestions', suggestions)}
+{format_items('## 🟢 Suggestions', suggestions)}
 """
 
     return review.strip()
 
 
-# 🔁 Main review function
-def review_code(code):
-    if not code.strip():
-        return "⚠️ No relevant changes found."
+# 🚀 Main
+def review_code(diff):
+    if not diff.strip():
+        return "⚠️ No changes detected."
 
-    issues, warnings, suggestions = analyze_code(code)
+    files = parse_diff(diff)
+    issues, warnings, suggestions = analyze_files(files)
+
     return format_review(issues, warnings, suggestions)
 
 
-# 🚀 Entry point
 if __name__ == "__main__":
-    print("🚀 Running Advanced AI Reviewer...")
+    print("🚀 Running PRO AI Reviewer...")
 
     full_diff = get_changed_code()
-
-    print("\n=== 🔍 RAW DIFF ===")
-    print(full_diff if full_diff.strip() else "❌ No diff found")
-
     filtered_code = filter_devops_files(full_diff)
-
-    print("\n=== ⚙️ FILTERED CODE ===")
-    print(filtered_code if filtered_code.strip() else "❌ No relevant changes")
 
     review = review_code(filtered_code)
 
-    print("\n=== 🤖 REVIEW OUTPUT ===")
+    print("\n=== 🤖 REVIEW ===")
     print(review)
 
-    # ✅ Post comment
     post_pr_comment(review)
