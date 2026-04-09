@@ -23,7 +23,7 @@ resource "aws_s3_bucket" "good_bucket" {
 resource "aws_s3_bucket" "bad_bucket" {
   bucket = "my-open-bucket"
 
-  acl = "public-read"   # ❌ public access
+  acl = "public-read-write"   # ❌ public access
 
   versioning {
     enabled = false     # ❌ no versioning
