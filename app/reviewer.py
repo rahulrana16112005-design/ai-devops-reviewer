@@ -3,7 +3,6 @@ from utils import get_changed_code
 from github import post_pr_comment, post_inline_comment, add_labels
 
 
-# 🔥 Only scan PR-Scanner folder
 def keep_only_target_folder(diff):
     result = []
     skip = False
@@ -23,7 +22,6 @@ def keep_only_target_folder(diff):
     return "\n".join(result)
 
 
-# 🔍 Parse diff
 def parse_diff(diff):
     files = {}
     current_file = None
@@ -48,12 +46,10 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Analyzer (NO DUPLICATES)
 def analyze_files(files):
     issues = []
     warnings = []
     suggestions = []
-
     seen = set()
 
     def add_unique(container, item):
@@ -67,65 +63,28 @@ def analyze_files(files):
             code_lower = code.lower()
 
             if "0.0.0.0/0" in code:
-                add_unique(issues, (file, line_no, code,
-                                    "Open to internet",
-                                    "Restrict CIDR range"))
+                add_unique(issues, (file, line_no, code, "Open to internet", "Restrict CIDR range"))
 
-            if "public-read" in code or "public-read-write" in code:
-                add_unique(issues, (file, line_no, code,
-                                    "Public access enabled",
-                                    "Disable public access"))
+            if "public-read" in code:
+                add_unique(issues, (file, line_no, code, "Public access enabled", "Disable public access"))
 
-            if "password=" in code_lower or "admin123" in code_lower:
-                add_unique(issues, (file, line_no, code,
-                                    "Hardcoded credentials",
-                                    "Use secrets manager"))
-
-            if "privileged: true" in code_lower:
-                add_unique(issues, (file, line_no, code,
-                                    "Privileged container",
-                                    "Disable privileged mode"))
-
-            if file.lower().endswith("dockerfile") and "latest" in code_lower:
-                add_unique(issues, (file, line_no, code,
-                                    "Using latest image",
-                                    "Pin version"))
-
-            if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
-                add_unique(issues, (file, line_no, code,
-                                    "Secret in YAML",
-                                    "Use Kubernetes secrets"))
-
-            if file.endswith(".tf") and "public-read" in code:
-                add_unique(issues, (file, line_no, code,
-                                    "Public S3 bucket",
-                                    "Disable public access"))
+            if "password=" in code_lower:
+                add_unique(issues, (file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
 
             if "latest" in code_lower:
-                add_unique(warnings, (file, line_no, code,
-                                     "Using latest tag",
-                                     "Pin version"))
-
-            if "versioning" in code_lower and "false" in code_lower:
-                add_unique(warnings, (file, line_no, code,
-                                     "Versioning disabled",
-                                     "Enable versioning"))
+                add_unique(warnings, (file, line_no, code, "Using latest tag", "Pin version"))
 
             if "aws_instance" in code_lower:
-                add_unique(suggestions, (file, line_no,
-                                        "Use IAM roles",
-                                        "Avoid static credentials"))
+                add_unique(suggestions, (file, line_no, "Use IAM roles", "Avoid static credentials"))
 
     return issues, warnings, suggestions
 
 
-# 📊 Score
 def calculate_score(issues, warnings):
     score = 10 - (len(issues) * 2) - len(warnings)
     return max(score, 1)
 
 
-# 📊 File summary
 def file_summary(issues):
     summary = {}
     for item in issues:
@@ -139,7 +98,6 @@ def file_summary(issues):
     return text
 
 
-# 🧠 Format
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -156,7 +114,6 @@ def format_review(issues, warnings, suggestions):
 """.strip()
 
 
-# 🚀 MAIN
 if __name__ == "__main__":
     print("🚀 Running AI Reviewer...")
 
@@ -171,12 +128,11 @@ if __name__ == "__main__":
         issues, warnings, suggestions = analyze_files(files)
         review = format_review(issues, warnings, suggestions)
 
-        # 💀 INLINE COMMENTS (SAFE)
         for file, line, code, problem, solution in issues[:10]:
             try:
                 post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
             except:
-                print("⚠️ Inline failed")
+                pass
 
         labels = []
         if issues:
