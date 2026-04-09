@@ -1,13 +1,14 @@
 import os
-from openai import OpenAI
+import requests
 from utils import get_changed_code, filter_devops_files
 from github import post_pr_comment
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def review_code(code):
     if not code.strip():
         return "⚠️ No relevant DevOps changes found in this PR."
+
+    api_key = os.getenv("OPENAI_API_KEY")
 
     prompt = f"""
 You are a senior DevOps engineer.
@@ -27,20 +28,30 @@ Focus on:
 Terraform, Kubernetes YAML, Docker, CI/CD
 
 Code:
-{code[:8000]}
+{code[:4000]}
 """
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert DevOps reviewer."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2
-        )
+    url = "https://api.openai.com/v1/chat/completions"
 
-        return response.choices[0].message.content
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gpt-4.1-mini",
+        "messages": [
+            {"role": "system", "content": "You are an expert DevOps reviewer."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        result = response.json()
+
+        return result["choices"][0]["message"]["content"]
 
     except Exception as e:
         return f"❌ Error during AI review: {str(e)}"
