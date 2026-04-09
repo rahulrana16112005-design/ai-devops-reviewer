@@ -28,7 +28,7 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Advanced analyzer with line numbers
+# 🔎 Advanced analyzer (file-aware 💀)
 def analyze_files(files):
     issues = []
     warnings = []
@@ -38,7 +38,10 @@ def analyze_files(files):
         for line_no, code in lines:
             code_lower = code.lower()
 
-            # 🔴 Critical Issues
+            # =========================
+            # 🔴 CRITICAL ISSUES
+            # =========================
+
             if "0.0.0.0/0" in code:
                 issues.append((file, line_no, code,
                                "Open access to entire internet",
@@ -46,20 +49,69 @@ def analyze_files(files):
 
             if "public-read" in code or "public-read-write" in code:
                 issues.append((file, line_no, code,
-                               "Public S3 bucket access",
-                               "Set ACL to private and enable block public access"))
+                               "Public access enabled",
+                               "Disable public access and enforce private ACL"))
 
             if "password=" in code or "admin123" in code:
                 issues.append((file, line_no, code,
-                               "Hardcoded credentials",
+                               "Hardcoded credentials detected",
                                "Use environment variables or secrets manager"))
 
             if "privileged: true" in code:
                 issues.append((file, line_no, code,
                                "Privileged container",
-                               "Remove privileged mode unless absolutely required"))
+                               "Remove privileged mode"))
 
-            # 🟠 Warnings
+            # =========================
+            # 🐳 DOCKERFILE RULES
+            # =========================
+            if file.lower().endswith("dockerfile"):
+                if "latest" in code:
+                    issues.append((file, line_no, code,
+                                   "Using latest Docker image",
+                                   "Pin to specific version (e.g., nginx:1.25)"))
+
+                if "env password" in code_lower:
+                    issues.append((file, line_no, code,
+                                   "Hardcoded ENV secret",
+                                   "Use runtime secrets"))
+
+            # =========================
+            # ☸️ KUBERNETES YAML RULES
+            # =========================
+            if file.endswith(".yaml") or file.endswith(".yml"):
+                if "privileged: true" in code:
+                    issues.append((file, line_no, code,
+                                   "Privileged container",
+                                   "Disable privileged mode"))
+
+                if "containerport" in code_lower:
+                    warnings.append((file, line_no, code,
+                                     "Exposed container port",
+                                     "Restrict access using services/network policies"))
+
+                if "password" in code_lower:
+                    issues.append((file, line_no, code,
+                                   "Hardcoded secret in YAML",
+                                   "Use Kubernetes secrets"))
+
+            # =========================
+            # 🌍 TERRAFORM RULES
+            # =========================
+            if file.endswith(".tf"):
+                if "0.0.0.0/0" in code:
+                    issues.append((file, line_no, code,
+                                   "Open security group",
+                                   "Restrict CIDR range"))
+
+                if "public-read" in code:
+                    issues.append((file, line_no, code,
+                                   "Public S3 bucket",
+                                   "Disable public access"))
+
+            # =========================
+            # 🟠 WARNINGS (GENERIC)
+            # =========================
             if "latest" in code:
                 warnings.append((file, line_no, code,
                                  "Using latest tag",
@@ -68,23 +120,35 @@ def analyze_files(files):
             if "versioning" in code and "false" in code:
                 warnings.append((file, line_no, code,
                                  "Versioning disabled",
-                                 "Enable versioning for data safety"))
+                                 "Enable versioning"))
 
             if 'cpu: "0"' in code:
                 warnings.append((file, line_no, code,
                                  "Invalid CPU config",
-                                 "Set valid CPU request like 100m"))
+                                 "Use valid CPU request (e.g., 100m)"))
 
-            # 🟢 Suggestions
+            if "print(" in code:
+                warnings.append((file, line_no, code,
+                                 "Debug print statement",
+                                 "Remove before production"))
+
+            # =========================
+            # 🟢 SUGGESTIONS
+            # =========================
             if "aws_instance" in code:
                 suggestions.append((file, line_no,
                                     "Use IAM roles",
-                                    "Avoid hardcoded credentials"))
+                                    "Avoid static credentials"))
+
+            if "dockerfile" in file.lower():
+                suggestions.append((file, line_no,
+                                    "Use minimal base image",
+                                    "Reduce image size & attack surface"))
 
     return issues, warnings, suggestions
 
 
-# 📊 Score
+# 📊 Score system
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
@@ -92,7 +156,7 @@ def calculate_score(issues, warnings):
     return max(score, 1)
 
 
-# 🧠 Format output (PRO STYLE 💀)
+# 🧠 Format output
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -117,7 +181,7 @@ def format_review(issues, warnings, suggestions):
 
         return text + "\n"
 
-    review = f"""
+    return f"""
 ## 🤖 AI DevOps Advanced Review
 
 ### 📊 Security Score: {score}/10
@@ -127,9 +191,7 @@ def format_review(issues, warnings, suggestions):
 {format_items('## 🟠 Warnings', warnings)}
 
 {format_items('## 🟢 Suggestions', suggestions)}
-"""
-
-    return review.strip()
+""".strip()
 
 
 # 🚀 Main
