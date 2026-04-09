@@ -1,73 +1,76 @@
 import os
-import requests
 from utils import get_changed_code, filter_devops_files
 from github import post_pr_comment
+
+
+def analyze_devops_code(code):
+    issues = []
+    warnings = []
+    suggestions = []
+
+    code_lower = code.lower()
+
+    # 🔴 Critical Issues
+    if "0.0.0.0/0" in code:
+        issues.append("Security group खुला है (0.0.0.0/0) → anyone can access")
+
+    if "public-read-write" in code or "public-read" in code:
+        issues.append("S3 bucket public access enabled")
+
+    if "password=" in code or "admin123" in code:
+        issues.append("Hardcoded secret detected")
+
+    if "privileged: true" in code:
+        issues.append("Container running in privileged mode")
+
+    # 🟠 Warnings
+    if "latest" in code:
+        warnings.append("Using latest tag → not stable for production")
+
+    if "versioning" in code and "false" in code:
+        warnings.append("S3 versioning disabled")
+
+    if "cpu: \"0\"" in code:
+        warnings.append("Invalid CPU request configuration")
+
+    # 🟢 Suggestions
+    if "aws_instance" in code:
+        suggestions.append("Use IAM roles instead of hardcoded credentials")
+
+    if "dockerfile" in code_lower:
+        suggestions.append("Use slim base image and pin versions")
+
+    if not suggestions:
+        suggestions.append("Follow least privilege principle and secure configs")
+
+    return issues, warnings, suggestions
+
+
+def format_review(issues, warnings, suggestions):
+    def format_section(title, items):
+        if not items:
+            return f"{title}\n- None"
+        return f"{title}\n" + "\n".join([f"- {item}" for item in items])
+
+    review = f"""
+## 🤖 AI DevOps Review
+
+{format_section('## 🔴 Critical Issues', issues)}
+
+{format_section('## 🟠 Warnings', warnings)}
+
+{format_section('## 🟢 Suggestions', suggestions)}
+"""
+    return review.strip()
 
 
 def review_code(code):
     if not code.strip():
         return "⚠️ No relevant DevOps changes found in this PR."
 
-    # ✅ Clean API key (removes newline/space issues)
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    issues, warnings, suggestions = analyze_devops_code(code)
 
-    if not api_key:
-        return "❌ OPENAI_API_KEY not found."
-
-    prompt = f"""
-You are a senior DevOps engineer.
-
-Analyze the code and respond strictly in this format:
-
-## 🔴 Critical Issues
-- ...
-
-## 🟠 Warnings
-- ...
-
-## 🟢 Suggestions
-- ...
-
-Focus on:
-Terraform, Kubernetes YAML, Docker, CI/CD
-
-Code:
-{code[:4000]}
-"""
-
-    url = "https://api.openai.com/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "model": "gpt-4.1-mini",
-        "messages": [
-            {"role": "system", "content": "You are an expert DevOps reviewer."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=data)
-
-        # 🔍 Debug logs (important)
-        print("STATUS CODE:", response.status_code)
-        print("RAW RESPONSE:", response.text)
-
-        result = response.json()
-
-        # ❌ Handle API errors safely
-        if "choices" not in result:
-            return f"❌ OpenAI API Error: {result}"
-
-        return result["choices"][0]["message"]["content"]
-
-    except Exception as e:
-        return f"❌ Error during AI review: {str(e)}"
+    return format_review(issues, warnings, suggestions)
 
 
 if __name__ == "__main__":
