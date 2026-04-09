@@ -1,9 +1,29 @@
 import os
-from utils import get_changed_code, filter_devops_files
-from github import post_pr_comment
+from utils import get_changed_code
+from github import post_pr_comment, post_inline_comment, add_labels
 
 
-# 🔍 Parse diff into file + line mapping
+# 🔥 Ignore scanner files
+def ignore_scanner_files(diff):
+    result = []
+    skip = False
+
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            file_name = line.split(" b/")[-1]
+
+            if file_name.startswith("app/") or file_name.startswith(".github/"):
+                skip = True
+            else:
+                skip = False
+
+        if not skip:
+            result.append(line)
+
+    return "\n".join(result)
+
+
+# 🔍 Parse diff
 def parse_diff(diff):
     files = {}
     current_file = None
@@ -28,127 +48,87 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Advanced analyzer (file-aware 💀)
+# 🔎 Analyzer (NO DUPLICATES 💀)
 def analyze_files(files):
     issues = []
     warnings = []
     suggestions = []
 
+    seen = set()
+
+    def add_unique(container, item):
+        key = (item[0], item[1], item[3])
+        if key not in seen:
+            seen.add(key)
+            container.append(item)
+
     for file, lines in files.items():
         for line_no, code in lines:
             code_lower = code.lower()
 
-            # =========================
-            # 🔴 CRITICAL ISSUES
-            # =========================
-
+            # 🔴 CRITICAL
             if "0.0.0.0/0" in code:
-                issues.append((file, line_no, code,
-                               "Open access to entire internet",
-                               "Restrict CIDR range (e.g., 192.168.x.x/24)"))
+                add_unique(issues, (file, line_no, code,
+                                    "Open to internet",
+                                    "Restrict CIDR range"))
 
             if "public-read" in code or "public-read-write" in code:
-                issues.append((file, line_no, code,
-                               "Public access enabled",
-                               "Disable public access and enforce private ACL"))
+                add_unique(issues, (file, line_no, code,
+                                    "Public access enabled",
+                                    "Disable public access"))
 
-            if "password=" in code or "admin123" in code:
-                issues.append((file, line_no, code,
-                               "Hardcoded credentials detected",
-                               "Use environment variables or secrets manager"))
+            if "password=" in code_lower or "admin123" in code_lower:
+                add_unique(issues, (file, line_no, code,
+                                    "Hardcoded credentials",
+                                    "Use secrets manager"))
 
-            if "privileged: true" in code:
-                issues.append((file, line_no, code,
-                               "Privileged container",
-                               "Remove privileged mode"))
+            if "privileged: true" in code_lower:
+                add_unique(issues, (file, line_no, code,
+                                    "Privileged container",
+                                    "Disable privileged mode"))
 
-            # =========================
-            # 🐳 DOCKERFILE RULES
-            # =========================
+            # 🐳 Docker
             if file.lower().endswith("dockerfile"):
-                if "latest" in code:
-                    issues.append((file, line_no, code,
-                                   "Using latest Docker image",
-                                   "Pin to specific version (e.g., nginx:1.25)"))
+                if "latest" in code_lower:
+                    add_unique(issues, (file, line_no, code,
+                                        "Using latest image",
+                                        "Pin version"))
 
-                if "env password" in code_lower:
-                    issues.append((file, line_no, code,
-                                   "Hardcoded ENV secret",
-                                   "Use runtime secrets"))
-
-            # =========================
-            # ☸️ KUBERNETES YAML RULES
-            # =========================
+            # ☸️ Kubernetes
             if file.endswith(".yaml") or file.endswith(".yml"):
-                if "privileged: true" in code:
-                    issues.append((file, line_no, code,
-                                   "Privileged container",
-                                   "Disable privileged mode"))
-
-                if "containerport" in code_lower:
-                    warnings.append((file, line_no, code,
-                                     "Exposed container port",
-                                     "Restrict access using services/network policies"))
-
                 if "password" in code_lower:
-                    issues.append((file, line_no, code,
-                                   "Hardcoded secret in YAML",
-                                   "Use Kubernetes secrets"))
+                    add_unique(issues, (file, line_no, code,
+                                        "Secret in YAML",
+                                        "Use Kubernetes secrets"))
 
-            # =========================
-            # 🌍 TERRAFORM RULES
-            # =========================
+            # 🌍 Terraform
             if file.endswith(".tf"):
-                if "0.0.0.0/0" in code:
-                    issues.append((file, line_no, code,
-                                   "Open security group",
-                                   "Restrict CIDR range"))
-
                 if "public-read" in code:
-                    issues.append((file, line_no, code,
-                                   "Public S3 bucket",
-                                   "Disable public access"))
+                    add_unique(issues, (file, line_no, code,
+                                        "Public S3 bucket",
+                                        "Disable public access"))
 
-            # =========================
-            # 🟠 WARNINGS (GENERIC)
-            # =========================
-            if "latest" in code:
-                warnings.append((file, line_no, code,
-                                 "Using latest tag",
-                                 "Pin to a specific version"))
+            # 🟠 WARNINGS
+            if "latest" in code_lower:
+                add_unique(warnings, (file, line_no, code,
+                                     "Using latest tag",
+                                     "Pin version"))
 
-            if "versioning" in code and "false" in code:
-                warnings.append((file, line_no, code,
-                                 "Versioning disabled",
-                                 "Enable versioning"))
+            if "versioning" in code_lower and "false" in code_lower:
+                add_unique(warnings, (file, line_no, code,
+                                     "Versioning disabled",
+                                     "Enable versioning"))
 
-            if 'cpu: "0"' in code:
-                warnings.append((file, line_no, code,
-                                 "Invalid CPU config",
-                                 "Use valid CPU request (e.g., 100m)"))
-
-            if "print(" in code:
-                warnings.append((file, line_no, code,
-                                 "Debug print statement",
-                                 "Remove before production"))
-
-            # =========================
             # 🟢 SUGGESTIONS
-            # =========================
-            if "aws_instance" in code:
-                suggestions.append((file, line_no,
-                                    "Use IAM roles",
-                                    "Avoid static credentials"))
-
-            if "dockerfile" in file.lower():
-                suggestions.append((file, line_no,
-                                    "Use minimal base image",
-                                    "Reduce image size & attack surface"))
+            if "aws_instance" in code_lower:
+                add_unique(suggestions, (file, line_no,
+                                        "Use IAM roles",
+                                        "Avoid static credentials"))
 
     return issues, warnings, suggestions
 
 
-# 📊 Score system
+# 📊 Score
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
@@ -156,7 +136,21 @@ def calculate_score(issues, warnings):
     return max(score, 1)
 
 
-# 🧠 Format output
+# 📊 File-wise summary
+def file_summary(issues):
+    summary = {}
+    for item in issues:
+        file = item[0]
+        summary[file] = summary.get(file, 0) + 1
+
+    text = "## 📁 File-wise Issues\n"
+    for f, count in summary.items():
+        text += f"- {f}: {count} issues\n"
+
+    return text
+
+
+# 🧠 Format review
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -169,22 +163,18 @@ def format_review(issues, warnings, suggestions):
             if len(item) == 5:
                 file, line, code, problem, solution = item
                 text += f"\n📄 {file} | Line {line}\n"
-                text += f"❌ Issue: {problem}\n"
-                text += f"💡 Fix: {solution}\n"
-                text += f"🔍 Code: `{code.strip()}`\n"
-
-            elif len(item) == 4:
-                file, line, problem, solution = item
-                text += f"\n📄 {file} | Line {line}\n"
-                text += f"💡 Suggestion: {problem}\n"
-                text += f"👉 {solution}\n"
+                text += f"❌ {problem}\n"
+                text += f"💡 {solution}\n"
+                text += f"🔍 `{code.strip()}`\n"
 
         return text + "\n"
 
     return f"""
-## 🤖 AI DevOps Advanced Review
+## 🤖 AI DevOps Review
 
-### 📊 Security Score: {score}/10
+### 📊 Score: {score}/10
+
+{file_summary(issues)}
 
 {format_items('## 🔴 Critical Issues', issues)}
 
@@ -194,24 +184,33 @@ def format_review(issues, warnings, suggestions):
 """.strip()
 
 
-# 🚀 Main
-def review_code(diff):
-    if not diff.strip():
-        return "⚠️ No changes detected."
-
-    files = parse_diff(diff)
-    issues, warnings, suggestions = analyze_files(files)
-
-    return format_review(issues, warnings, suggestions)
-
-
+# 🚀 MAIN
 if __name__ == "__main__":
-    print("🚀 Running PRO AI Reviewer...")
+    print("🚀 Running AI Reviewer...")
 
     full_diff = get_changed_code()
-    filtered_code = filter_devops_files(full_diff)
+    full_diff = ignore_scanner_files(full_diff)
 
-    review = review_code(filtered_code)
+    files = parse_diff(full_diff)
+
+    if not files:
+        review = "✅ No relevant DevOps changes found."
+    else:
+        issues, warnings, suggestions = analyze_files(files)
+        review = format_review(issues, warnings, suggestions)
+
+        # 💀 INLINE COMMENTS
+        for file, line, code, problem, solution in issues:
+            post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+
+        # 🏷️ LABELS
+        labels = []
+        if issues:
+            labels.append("security-risk")
+        if warnings:
+            labels.append("needs-fix")
+
+        add_labels(labels)
 
     print("\n=== 🤖 REVIEW ===")
     print(review)
