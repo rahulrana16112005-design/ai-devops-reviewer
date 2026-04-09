@@ -8,7 +8,11 @@ def review_code(code):
     if not code.strip():
         return "⚠️ No relevant DevOps changes found in this PR."
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    # ✅ Clean API key (removes newline/space issues)
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if not api_key:
+        return "❌ OPENAI_API_KEY not found."
 
     prompt = f"""
 You are a senior DevOps engineer.
@@ -49,7 +53,16 @@ Code:
 
     try:
         response = requests.post(url, headers=headers, json=data)
+
+        # 🔍 Debug logs (important)
+        print("STATUS CODE:", response.status_code)
+        print("RAW RESPONSE:", response.text)
+
         result = response.json()
+
+        # ❌ Handle API errors safely
+        if "choices" not in result:
+            return f"❌ OpenAI API Error: {result}"
 
         return result["choices"][0]["message"]["content"]
 
