@@ -2,28 +2,18 @@ import os
 from utils import get_changed_code
 from github import post_pr_comment
 
+USE_LOCAL_FILES = False
 
-# ================================
-# 🔥 MODE SWITCH
-# ================================
-USE_LOCAL_FILES = True   # ✅ True = PR-Scanner mode | False = GitHub PR mode
-
-
-# ================================
-# 📁 LOCAL FILE LOADER (PR-Scanner)
-# ================================
 def get_local_files():
     base_path = "PR-Scanner"
     files = {}
 
     if not os.path.exists(base_path):
-        print("⚠️ PR-Scanner folder not found")
         return files
 
     for root, _, filenames in os.walk(base_path):
         for file in filenames:
             path = os.path.join(root, file)
-
             try:
                 with open(path, "r", errors="ignore") as f:
                     content = f.readlines()
@@ -31,16 +21,12 @@ def get_local_files():
                 files[path] = [
                     (i + 1, line.strip()) for i, line in enumerate(content)
                 ]
-
-            except Exception as e:
-                print(f"❌ Error reading {path}: {e}")
+            except:
+                pass
 
     return files
 
 
-# ================================
-# 🔥 IGNORE SCANNER FILES
-# ================================
 def ignore_scanner_files(diff):
     result = []
     skip = False
@@ -48,11 +34,7 @@ def ignore_scanner_files(diff):
     for line in diff.split("\n"):
         if line.startswith("diff --git"):
             file_name = line.split(" b/")[-1]
-
-            if file_name.startswith("app/") or file_name.startswith(".github/"):
-                skip = True
-            else:
-                skip = False
+            skip = file_name.startswith("app/") or file_name.startswith(".github/")
 
         if not skip:
             result.append(line)
@@ -60,9 +42,6 @@ def ignore_scanner_files(diff):
     return "\n".join(result)
 
 
-# ================================
-# 🔍 PARSE DIFF
-# ================================
 def parse_diff(diff):
     files = {}
     current_file = None
@@ -87,9 +66,6 @@ def parse_diff(diff):
     return files
 
 
-# ================================
-# 🔎 ANALYZER
-# ================================
 def analyze_files(files):
     issues = []
     warnings = []
@@ -99,71 +75,39 @@ def analyze_files(files):
         for line_no, code in lines:
             code_lower = code.lower()
 
-            # 🔴 CRITICAL
             if "0.0.0.0/0" in code:
-                issues.append((file, line_no, code,
-                               "Open to internet",
-                               "Restrict CIDR range"))
+                issues.append((file, line_no, code, "Open to internet", "Restrict CIDR range"))
 
             if "public-read" in code or "public-read-write" in code:
-                issues.append((file, line_no, code,
-                               "Public access enabled",
-                               "Disable public access"))
+                issues.append((file, line_no, code, "Public access enabled", "Disable public access"))
 
             if "password=" in code_lower or "admin123" in code_lower:
-                issues.append((file, line_no, code,
-                               "Hardcoded credentials",
-                               "Use secrets manager"))
+                issues.append((file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
 
             if "privileged: true" in code_lower:
-                issues.append((file, line_no, code,
-                               "Privileged container",
-                               "Disable privileged mode"))
+                issues.append((file, line_no, code, "Privileged container", "Disable privileged mode"))
 
-            # 🐳 Docker
-            if file.lower().endswith("dockerfile"):
-                if "latest" in code_lower:
-                    issues.append((file, line_no, code,
-                                   "Using latest image",
-                                   "Pin version"))
+            if file.lower().endswith("dockerfile") and "latest" in code_lower:
+                issues.append((file, line_no, code, "Using latest image", "Pin version"))
 
-            # ☸️ Kubernetes
-            if file.endswith(".yaml") or file.endswith(".yml"):
-                if "password" in code_lower:
-                    issues.append((file, line_no, code,
-                                   "Secret in YAML",
-                                   "Use Kubernetes secrets"))
+            if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
+                issues.append((file, line_no, code, "Secret in YAML", "Use Kubernetes secrets"))
 
-            # 🌍 Terraform
-            if file.endswith(".tf"):
-                if "public-read" in code:
-                    issues.append((file, line_no, code,
-                                   "Public S3 bucket",
-                                   "Disable public access"))
+            if file.endswith(".tf") and "public-read" in code:
+                issues.append((file, line_no, code, "Public S3 bucket", "Disable public access"))
 
-            # 🟠 WARNINGS
             if "latest" in code_lower:
-                warnings.append((file, line_no, code,
-                                 "Using latest tag",
-                                 "Pin version"))
+                warnings.append((file, line_no, code, "Using latest tag", "Pin version"))
 
             if "versioning" in code_lower and "false" in code_lower:
-                warnings.append((file, line_no, code,
-                                 "Versioning disabled",
-                                 "Enable versioning"))
+                warnings.append((file, line_no, code, "Versioning disabled", "Enable versioning"))
 
-            # 🟢 SUGGESTIONS
             if "aws_instance" in code_lower:
-                suggestions.append((file, line_no,
-                                    "Use IAM roles",
-                                    "Avoid static credentials"))
+                suggestions.append((file, line_no, "Use IAM roles", "Avoid static credentials"))
 
     return issues, warnings, suggestions
 
 
-# ================================
-# 📊 SCORE
-# ================================
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
@@ -171,9 +115,6 @@ def calculate_score(issues, warnings):
     return max(score, 1)
 
 
-# ================================
-# 🧠 FORMAT OUTPUT
-# ================================
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -189,8 +130,7 @@ def format_review(issues, warnings, suggestions):
                 text += f"❌ {problem}\n"
                 text += f"💡 {solution}\n"
                 text += f"🔍 `{code.strip()}`\n"
-
-            elif len(item) == 4:
+            else:
                 file, line, problem, solution = item
                 text += f"\n📄 {file} | Line {line}\n"
                 text += f"💡 {problem}\n"
@@ -211,37 +151,24 @@ def format_review(issues, warnings, suggestions):
 """.strip()
 
 
-# ================================
-# 🚀 MAIN
-# ================================
 if __name__ == "__main__":
-    print("🚀 Running AI Reviewer...")
-
     if USE_LOCAL_FILES:
-        print("📁 Using PR-Scanner local files...")
         files = get_local_files()
-
         if not files:
-            review = "⚠️ No files found in PR-Scanner folder."
+            review = "No files found in PR-Scanner folder."
         else:
             issues, warnings, suggestions = analyze_files(files)
             review = format_review(issues, warnings, suggestions)
-
     else:
-        print("🌐 Using GitHub PR diff...")
         full_diff = get_changed_code()
         full_diff = ignore_scanner_files(full_diff)
 
         if not full_diff.strip():
-            review = "✅ No relevant DevOps changes found."
+            review = "No relevant DevOps changes found."
         else:
             files = parse_diff(full_diff)
             issues, warnings, suggestions = analyze_files(files)
             review = format_review(issues, warnings, suggestions)
 
-    print("\n=== 🤖 REVIEW ===")
     print(review)
-
-    # PR mode me hi comment kare
-    if not USE_LOCAL_FILES:
-        post_pr_comment(review)
+    post_pr_comment(review)
