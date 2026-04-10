@@ -1,30 +1,23 @@
 import os
 from utils import get_changed_code
-from github import post_pr_comment
+from github import post_pr_comment, post_inline_comment, add_labels
 
 USE_LOCAL_FILES = False
 
-def get_local_files():
-    base_path = "PR-Scanner"
-    files = {}
 
-    if not os.path.exists(base_path):
-        return files
+def keep_only_target_folder(diff):
+    result = []
+    skip = False
 
-    for root, _, filenames in os.walk(base_path):
-        for file in filenames:
-            path = os.path.join(root, file)
-            try:
-                with open(path, "r", errors="ignore") as f:
-                    content = f.readlines()
+    for line in diff.split("\n"):
+        if line.startswith("diff --git"):
+            file_name = line.split(" b/")[-1]
+            skip = not file_name.startswith("PR-Scanner/")
 
-                files[path] = [
-                    (i + 1, line.strip()) for i, line in enumerate(content)
-                ]
-            except:
-                pass
+        if not skip:
+            result.append(line)
 
-    return files
+    return "\n".join(result)
 
 
 def ignore_scanner_files(diff):
@@ -153,14 +146,29 @@ def format_review(issues, warnings, suggestions):
 
 if __name__ == "__main__":
     if USE_LOCAL_FILES:
-        files = get_local_files()
+        files = {}
+        base_path = "PR-Scanner"
+
+        if os.path.exists(base_path):
+            for root, _, filenames in os.walk(base_path):
+                for file in filenames:
+                    path = os.path.join(root, file)
+                    try:
+                        with open(path, "r", errors="ignore") as f:
+                            content = f.readlines()
+                        files[path] = [(i + 1, line.strip()) for i, line in enumerate(content)]
+                    except:
+                        pass
+
         if not files:
             review = "No files found in PR-Scanner folder."
         else:
             issues, warnings, suggestions = analyze_files(files)
             review = format_review(issues, warnings, suggestions)
+
     else:
         full_diff = get_changed_code()
+        full_diff = keep_only_target_folder(full_diff)
         full_diff = ignore_scanner_files(full_diff)
 
         if not full_diff.strip():
@@ -172,4 +180,6 @@ if __name__ == "__main__":
 
     print(review)
     post_pr_comment(review)
-    #hint
+
+    if issues:
+        add_labels(["security-risk", "needs-fix"])
