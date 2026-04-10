@@ -2,6 +2,7 @@ import os
 from utils import get_changed_code
 from github import post_pr_comment, post_inline_comment, add_labels
 
+
 def keep_only_target_folder(diff):
     result = []
     skip = False
@@ -56,6 +57,32 @@ def parse_diff(diff):
     return files
 
 
+def get_explanation(problem):
+    explanations = {
+        "Hardcoded credentials": "Secrets in code can be exposed publicly and lead to security breaches.",
+        "Open to internet": "Allowing 0.0.0.0/0 exposes your service to the entire internet.",
+        "Public access enabled": "Public resources can be accessed or modified by anyone.",
+        "Using latest image": "Latest tags are unstable and can break builds anytime.",
+        "Privileged container": "Privileged containers have full access to host system.",
+        "Secret in YAML": "Sensitive data in YAML can be leaked in version control.",
+        "Public S3 bucket": "Public buckets can leak data to anyone."
+    }
+    return explanations.get(problem, "This is not a recommended practice.")
+
+
+def get_fix(problem):
+    fixes = {
+        "Hardcoded credentials": "Use environment variables.\nExample:\n❌ password=admin123\n✅ password=os.getenv('DB_PASSWORD')",
+        "Open to internet": "Restrict CIDR range.\nExample:\n❌ 0.0.0.0/0\n✅ 192.168.1.0/24",
+        "Public access enabled": "Disable public access.\nExample:\n❌ public-read\n✅ private",
+        "Using latest image": "Pin image version.\nExample:\n❌ nginx:latest\n✅ nginx:1.25",
+        "Privileged container": "Remove privileged mode.\nExample:\n❌ privileged: true\n✅ remove this line",
+        "Secret in YAML": "Use Kubernetes secrets instead of plain text.",
+        "Public S3 bucket": "Set ACL to private and block public access."
+    }
+    return fixes.get(problem, "Follow security best practices.")
+
+
 def analyze_files(files):
     issues = []
     warnings = []
@@ -73,34 +100,34 @@ def analyze_files(files):
             code_lower = code.lower()
 
             if "0.0.0.0/0" in code:
-                add_unique(issues, (file, line_no, code, "Open to internet", "Restrict CIDR range"))
+                add_unique(issues, (file, line_no, code, "Open to internet"))
 
             if "public-read" in code or "public-read-write" in code:
-                add_unique(issues, (file, line_no, code, "Public access enabled", "Disable public access"))
+                add_unique(issues, (file, line_no, code, "Public access enabled"))
 
             if "password=" in code_lower or "admin123" in code_lower:
-                add_unique(issues, (file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
+                add_unique(issues, (file, line_no, code, "Hardcoded credentials"))
 
             if "privileged: true" in code_lower:
-                add_unique(issues, (file, line_no, code, "Privileged container", "Disable privileged mode"))
+                add_unique(issues, (file, line_no, code, "Privileged container"))
 
             if file.lower().endswith("dockerfile") and "latest" in code_lower:
-                add_unique(issues, (file, line_no, code, "Using latest image", "Pin version"))
+                add_unique(issues, (file, line_no, code, "Using latest image"))
 
             if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
-                add_unique(issues, (file, line_no, code, "Secret in YAML", "Use Kubernetes secrets"))
+                add_unique(issues, (file, line_no, code, "Secret in YAML"))
 
             if file.endswith(".tf") and "public-read" in code:
-                add_unique(issues, (file, line_no, code, "Public S3 bucket", "Disable public access"))
+                add_unique(issues, (file, line_no, code, "Public S3 bucket"))
 
             if "latest" in code_lower:
-                warnings.append((file, line_no, code, "Using latest tag", "Pin version"))
+                warnings.append((file, line_no, code, "Using latest tag"))
 
             if "versioning" in code_lower and "false" in code_lower:
-                warnings.append((file, line_no, code, "Versioning disabled", "Enable versioning"))
+                warnings.append((file, line_no, code, "Versioning disabled"))
 
             if "aws_instance" in code_lower:
-                suggestions.append((file, line_no, "Use IAM roles", "Avoid static credentials"))
+                suggestions.append((file, line_no, "Use IAM roles"))
 
     return issues, warnings, suggestions
 
@@ -119,9 +146,17 @@ if __name__ == "__main__":
     else:
         review = "## 🤖 AI DevOps Review\n"
 
-    for file, line, code, problem, solution in issues:
+    for file, line, code, problem in issues:
         try:
-            post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+            message = f"""❌ {problem}
+
+🧠 Why:
+{get_explanation(problem)}
+
+🛠 Fix:
+{get_fix(problem)}
+"""
+            post_inline_comment(file, line, message)
         except:
             pass
 
