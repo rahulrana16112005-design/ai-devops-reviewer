@@ -3,7 +3,44 @@ from utils import get_changed_code
 from github import post_pr_comment
 
 
-# 🔥 Ignore scanner files (VERY IMPORTANT)
+# ================================
+# 🔥 MODE SWITCH
+# ================================
+USE_LOCAL_FILES = True   # ✅ True = PR-Scanner mode | False = GitHub PR mode
+
+
+# ================================
+# 📁 LOCAL FILE LOADER (PR-Scanner)
+# ================================
+def get_local_files():
+    base_path = "PR-Scanner"
+    files = {}
+
+    if not os.path.exists(base_path):
+        print("⚠️ PR-Scanner folder not found")
+        return files
+
+    for root, _, filenames in os.walk(base_path):
+        for file in filenames:
+            path = os.path.join(root, file)
+
+            try:
+                with open(path, "r", errors="ignore") as f:
+                    content = f.readlines()
+
+                files[path] = [
+                    (i + 1, line.strip()) for i, line in enumerate(content)
+                ]
+
+            except Exception as e:
+                print(f"❌ Error reading {path}: {e}")
+
+    return files
+
+
+# ================================
+# 🔥 IGNORE SCANNER FILES
+# ================================
 def ignore_scanner_files(diff):
     result = []
     skip = False
@@ -23,16 +60,9 @@ def ignore_scanner_files(diff):
     return "\n".join(result)
 
 
-# 🔍 Keep only added lines
-def keep_added_lines(diff):
-    lines = []
-    for line in diff.split("\n"):
-        if line.startswith("+") and not line.startswith("+++"):
-            lines.append(line[1:])
-    return "\n".join(lines)
-
-
-# 🔍 Parse diff into file + line mapping
+# ================================
+# 🔍 PARSE DIFF
+# ================================
 def parse_diff(diff):
     files = {}
     current_file = None
@@ -57,7 +87,9 @@ def parse_diff(diff):
     return files
 
 
-# 🔎 Analyzer
+# ================================
+# 🔎 ANALYZER
+# ================================
 def analyze_files(files):
     issues = []
     warnings = []
@@ -129,7 +161,9 @@ def analyze_files(files):
     return issues, warnings, suggestions
 
 
-# 📊 Score
+# ================================
+# 📊 SCORE
+# ================================
 def calculate_score(issues, warnings):
     score = 10
     score -= len(issues) * 2
@@ -137,7 +171,9 @@ def calculate_score(issues, warnings):
     return max(score, 1)
 
 
-# 🧠 Format output
+# ================================
+# 🧠 FORMAT OUTPUT
+# ================================
 def format_review(issues, warnings, suggestions):
     score = calculate_score(issues, warnings)
 
@@ -175,26 +211,37 @@ def format_review(issues, warnings, suggestions):
 """.strip()
 
 
+# ================================
 # 🚀 MAIN
+# ================================
 if __name__ == "__main__":
     print("🚀 Running AI Reviewer...")
 
-    full_diff = get_changed_code()
+    if USE_LOCAL_FILES:
+        print("📁 Using PR-Scanner local files...")
+        files = get_local_files()
 
-    # 💀 FIX 1: Ignore scanner files
-    full_diff = ignore_scanner_files(full_diff)
+        if not files:
+            review = "⚠️ No files found in PR-Scanner folder."
+        else:
+            issues, warnings, suggestions = analyze_files(files)
+            review = format_review(issues, warnings, suggestions)
 
-    # 💀 FIX 2: Keep only new lines
-    filtered_diff = keep_added_lines(full_diff)
-
-    if not filtered_diff.strip():
-        review = "✅ No relevant DevOps changes found."
     else:
-        files = parse_diff(full_diff)
-        issues, warnings, suggestions = analyze_files(files)
-        review = format_review(issues, warnings, suggestions)
+        print("🌐 Using GitHub PR diff...")
+        full_diff = get_changed_code()
+        full_diff = ignore_scanner_files(full_diff)
+
+        if not full_diff.strip():
+            review = "✅ No relevant DevOps changes found."
+        else:
+            files = parse_diff(full_diff)
+            issues, warnings, suggestions = analyze_files(files)
+            review = format_review(issues, warnings, suggestions)
 
     print("\n=== 🤖 REVIEW ===")
     print(review)
 
-    post_pr_comment(review)
+    # PR mode me hi comment kare
+    if not USE_LOCAL_FILES:
+        post_pr_comment(review)
