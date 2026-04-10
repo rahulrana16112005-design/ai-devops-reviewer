@@ -2,9 +2,6 @@ import os
 from utils import get_changed_code
 from github import post_pr_comment, post_inline_comment, add_labels
 
-USE_LOCAL_FILES = False
-
-
 def keep_only_target_folder(diff):
     result = []
     skip = False
@@ -63,31 +60,38 @@ def analyze_files(files):
     issues = []
     warnings = []
     suggestions = []
+    seen = set()
+
+    def add_unique(container, item):
+        key = (item[0], item[1], item[3])
+        if key not in seen:
+            seen.add(key)
+            container.append(item)
 
     for file, lines in files.items():
         for line_no, code in lines:
             code_lower = code.lower()
 
             if "0.0.0.0/0" in code:
-                issues.append((file, line_no, code, "Open to internet", "Restrict CIDR range"))
+                add_unique(issues, (file, line_no, code, "Open to internet", "Restrict CIDR range"))
 
             if "public-read" in code or "public-read-write" in code:
-                issues.append((file, line_no, code, "Public access enabled", "Disable public access"))
+                add_unique(issues, (file, line_no, code, "Public access enabled", "Disable public access"))
 
             if "password=" in code_lower or "admin123" in code_lower:
-                issues.append((file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
+                add_unique(issues, (file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
 
             if "privileged: true" in code_lower:
-                issues.append((file, line_no, code, "Privileged container", "Disable privileged mode"))
+                add_unique(issues, (file, line_no, code, "Privileged container", "Disable privileged mode"))
 
             if file.lower().endswith("dockerfile") and "latest" in code_lower:
-                issues.append((file, line_no, code, "Using latest image", "Pin version"))
+                add_unique(issues, (file, line_no, code, "Using latest image", "Pin version"))
 
             if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
-                issues.append((file, line_no, code, "Secret in YAML", "Use Kubernetes secrets"))
+                add_unique(issues, (file, line_no, code, "Secret in YAML", "Use Kubernetes secrets"))
 
             if file.endswith(".tf") and "public-read" in code:
-                issues.append((file, line_no, code, "Public S3 bucket", "Disable public access"))
+                add_unique(issues, (file, line_no, code, "Public S3 bucket", "Disable public access"))
 
             if "latest" in code_lower:
                 warnings.append((file, line_no, code, "Using latest tag", "Pin version"))
@@ -101,85 +105,34 @@ def analyze_files(files):
     return issues, warnings, suggestions
 
 
-def calculate_score(issues, warnings):
-    score = 10
-    score -= len(issues) * 2
-    score -= len(warnings)
-    return max(score, 1)
-
-
-def format_review(issues, warnings, suggestions):
-    score = calculate_score(issues, warnings)
-
-    def format_items(title, items):
-        if not items:
-            return f"{title}\n- None\n"
-
-        text = f"{title}\n"
-        for item in items:
-            if len(item) == 5:
-                file, line, code, problem, solution = item
-                text += f"\n📄 {file} | Line {line}\n"
-                text += f"❌ {problem}\n"
-                text += f"💡 {solution}\n"
-                text += f"🔍 `{code.strip()}`\n"
-            else:
-                file, line, problem, solution = item
-                text += f"\n📄 {file} | Line {line}\n"
-                text += f"💡 {problem}\n"
-                text += f"👉 {solution}\n"
-
-        return text + "\n"
-
-    return f"""
-## 🤖 AI DevOps Review
-
-### 📊 Score: {score}/10
-
-{format_items('## 🔴 Critical Issues', issues)}
-
-{format_items('## 🟠 Warnings', warnings)}
-
-{format_items('## 🟢 Suggestions', suggestions)}
-""".strip()
-
-
 if __name__ == "__main__":
-    if USE_LOCAL_FILES:
-        files = {}
-        base_path = "PR-Scanner"
+    full_diff = get_changed_code()
+    full_diff = keep_only_target_folder(full_diff)
+    full_diff = ignore_scanner_files(full_diff)
 
-        if os.path.exists(base_path):
-            for root, _, filenames in os.walk(base_path):
-                for file in filenames:
-                    path = os.path.join(root, file)
-                    try:
-                        with open(path, "r", errors="ignore") as f:
-                            content = f.readlines()
-                        files[path] = [(i + 1, line.strip()) for i, line in enumerate(content)]
-                    except:
-                        pass
+    files = parse_diff(full_diff)
 
-        if not files:
-            review = "No files found in PR-Scanner folder."
-        else:
-            issues, warnings, suggestions = analyze_files(files)
-            review = format_review(issues, warnings, suggestions)
+    issues, warnings, suggestions = analyze_files(files)
 
+    if not issues and not warnings and not suggestions:
+        review = "No relevant DevOps changes found."
     else:
-        full_diff = get_changed_code()
-        full_diff = keep_only_target_folder(full_diff)
-        full_diff = ignore_scanner_files(full_diff)
+        review = "## 🤖 AI DevOps Review\n"
 
-        if not full_diff.strip():
-            review = "No relevant DevOps changes found."
-        else:
-            files = parse_diff(full_diff)
-            issues, warnings, suggestions = analyze_files(files)
-            review = format_review(issues, warnings, suggestions)
+    for file, line, code, problem, solution in issues:
+        try:
+            post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+        except:
+            pass
 
     print(review)
     post_pr_comment(review)
 
+    labels = []
     if issues:
-        add_labels(["security-risk", "needs-fix"])
+        labels.append("security-risk")
+    if warnings:
+        labels.append("needs-fix")
+
+    if labels:
+        add_labels(labels)
