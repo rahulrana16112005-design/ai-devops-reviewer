@@ -1,0 +1,121 @@
+https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+https://kubernetes.io/docs/reference/kubectl/cheatsheet/
+
+If we don’t want to install entire kubernates cluster, just need to install kubectl.exe to run basis kubectl command. 
+Below is the process to install kubectl
+Install kubectl binary with curl on Linux
+Step-1  Download the latest release with the command:
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+
+(FYI - to download a specific version use -  curl -LO https://dl.k8s.io/release/v1.26.0/bin/linux/amd64/kubectl)
+
+Step-2 Validate the binary (optional) 
+curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+
+
+Step-3 Validate the kubectl binary against the checksum file
+       echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+(Note: Download the same version of the binary and checksum.)
+
+Step-4 Install kubectl
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+Step 5 Check installed version
+       kubectl version --client --output=yaml
+
+mkdir .kube
+vi config 
+
+kubectl config get-contexts
+kubectl config use-context ke-prod
+kubectl get pods -n mfs -o wide
+kubectl get pods -n mfs -o wide | grep 'arch'                                       to get pods of archway 
+
+========Stern=====
+stern -n mfs am-transaction --since=5m
+stern -n mfs am-transaction --previous=1d
+stern -n mfs am-transaction --since=1m | grep 'Exception'
+stern -n mfs am-transaction --since=5m | tee  -a amtxn.txt
+
+kubectl get pods -n default -o wide | egrep 'sms|ums'
+kubectl -n mfs logs -f --tail 100 am-transaction-c9974b847-h82vh --since=10m | grep -i Exception
+kubectl -n mfs logs -f am-transaction-c9974b847-h82vh --since=10m --previous | tee  -a amtxn.txt
+kubectl -n mfs logs -f archway-ingress-64584f7749-fbbxf                                  all logs of archway ingress service
+kubectl -n mfs logs -f archway-ingress-64584f7749-fbbxf --since=10m                log of last 10 minutes
+kubectl -n mfs logs -f archway-ingress-64584f7749-fbbxf --since=10m  | grep -i response             grep the keyword "response"               
+kubectl -n mfs logs -f deployment/am-transaction | grep 'APCNG87266202370368'
+kubectl -n mfs logs -f --prefix  --since=1m archway-ingress-64584f7749-fbbxf   --kubeconfig=/home/harikesh/.kube/ke-prod_config
+
+kubectl -n mfs describe pod am-transaction-57d964c68f-8kpjt                        to describe the particular pod
+kubectl top pod -n mfs | grep llm
+kubectl top node  -n mfs
+
+============to check  specific opco pods status details 
+kubectl get pods -n mfs -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+kubectl get pods -n biller -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+kubectl get pods -n devportal -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+kubectl get pods -n mfsesb -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+kubectl get pods -n mfs-redis1 -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+kubectl get pods -n kong-devportal -o wide --kubeconfig=/home/harikesh/.kube/uganda_config
+
+kubectl -n mfs logs -f am-profile-f6f955cbc-jxlpr   --kubeconfig=/home/harikesh/.kube/sc-prod_config  |grep -i "modifyKyc"
+
+kubectl exec -it archway-54cdc76f9-dcf68 -n mfs -- sh                          to login to particular pod
+
+kubectl -n mfs logs -f am-transaction-c9974b847-h82vh --since=10m  | tee  -a amtxn.txt | grep '9416399309'              (to grep the msisdn in last 10 minutes and redirect logs to file
+kubectl -n mfs logs -f mfs-router-c9974b847-h82vh --since=10m | grep 172.27.98
+
+
+Kubectl logs --selector-app=archway -n mfs  --max-log-requests=16 -f 
+date;kubectl logs --selector-app=archway -n mfs  --max-log-requests=16 -f  |grep -I 'error'
+Kubectl logs --selector-app=archway -n mfs  --max-log-requests=16 -f  |grep -I 'exception'
+===============
+kubectl config get-contexts
+kubectl config use-context zm-prod
+kubectl get pods -n mfs
+kubectl config use-context ug-prod-n1
+kubectl get pods -n mfs
+kubectl get pods -n mfs  |grep ngcppsbagapp01
+kubectl logs -f --tail 100 am-transaction-c9974b847-h82vh -n mfs --since=10m | grep -i Exception
+kubectl config use-context mfsuser@cd-prod
+kubectl config use-context mfsuser@cd-sit
+kubectl get pods -n mfs
+kubectl logs -f archway-ingress-64584f7749-fbbxf -n mfs --since=10m
+kubectl get pods -n default   
+doskey /history
+
+ktail -l  app=canza-service -n mfs   
+kubectl -n mfs logs -f deployment/apc --all-containers=true --since=1h
+
+
+
+
+
+kubectl -n mfs logs -f deployment/am-transaction | grep 'APCNG87266202370368'
+
+Check Logs from all pods application: 
+kubectl -n mfs logs -f am-profile
+
+kubectl logs -f --selector-app=archway -n mfs --max-log-requests=16 | grep -i 'ncard'
+
+kubectl -n mfs describe pod am-transaction-57d964c68f-8kpjt
+
+kubectl get configmap -n mfs | grep nips             to get the config details
+
+kubectl describe configmaps config-nips
+kubectl describe configmaps config-nips -n mfs | grep redis
+kubectl describe configmaps -n mfs | grep redis.database
+
+Kubectl get hpa -n mfs | grep  'keda'
+========================================================================
+
+kubectl config view # Show Merged kubeconfig settings.
+- cluster:
+    certificate-auth
+ority-data: DATA+OMITTED
+    server: https://172.27.98.168:6443
+  name: ug-prod
+- context:
+    cluster: ug-prod
+    user: mfsuserugprodnl
+  name: mfsuser@ug-prod-nl
