@@ -78,4 +78,4 @@ resource "aws_instance" "good_ec2" {
     Name = "secure-instance"
   }
 }
-# trigger change
+
