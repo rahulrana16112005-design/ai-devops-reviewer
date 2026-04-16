@@ -268,6 +268,18 @@ This project reflects:
 
 ---
 
+## ⚙️ Current Implementation vs Future Scope
+
+Currently, the system uses rule-based analysis implemented in Python to simulate automated code review within GitHub workflows.
+
+Instead of relying on external AI APIs, the logic is designed to detect common misconfigurations, security issues, and best practice violations using predefined checks.
+
+The architecture is intentionally built to be AI-ready, allowing seamless integration with LLM-based APIs (such as OpenAI, Claude, or Gemini) in the future for more advanced analysis and contextual feedback.
+
+This approach ensures the system remains functional, extensible, and cost-efficient while demonstrating real-world DevOps automation workflows.
+
+---
+
 ## Demo
 
 Upload a file → System creates PR → GitHub Actions run → Feedback generated
