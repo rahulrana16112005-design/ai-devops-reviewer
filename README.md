@@ -1,9 +1,15 @@
 # AI DevOps Reviewer 🚀
 
 AI-powered DevOps PR reviewer that automatically analyzes infrastructure/code files, detects issues, and provides actionable feedback — reducing manual debugging effort.
-
 ---
+ ## Why This Project Matters
 
+Modern DevOps workflows are fast, but debugging infrastructure code remains slow and manual.
+
+This project demonstrates how automated PR-based workflows can be extended with AI to reduce manual debugging effort and improve deployment reliability.
+
+It is designed as a system that integrates CI/CD, GitHub workflows, and future AI-based analysis into a single automated pipeline.
+---
 ## About the Project
 
 This project was built with a simple but powerful mindset:
@@ -262,6 +268,12 @@ This project reflects:
 
 ---
 
+## Demo
+
+Upload a file → System creates PR → GitHub Actions run → Feedback generated
+
+Live API: https://ai-devops-reviewer.onrender.com/docs
+---
 ## Future Improvements
 
 - Remove blocking sleep (async system)
