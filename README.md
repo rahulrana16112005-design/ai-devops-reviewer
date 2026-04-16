@@ -1,6 +1,6 @@
 # AI DevOps Reviewer 🚀
 
-AI-powered DevOps PR reviewer that automatically analyzes infrastructure/code files, detects issues, and provides actionable feedback — reducing manual debugging effort.
+AI-Ready DevOps PR reviewer that automates infrastructure/code analysis and provides actionable feedback.
 ---
  ## Why This Project Matters
 
