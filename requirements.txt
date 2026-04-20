@@ -1,3 +1,6 @@
-openai
+fastapi
+uvicorn
 requests
+python-multipart
+openai
 python-dotenv

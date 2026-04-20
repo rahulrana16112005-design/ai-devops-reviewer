@@ -10,22 +10,11 @@ def keep_only_target_folder(diff):
     for line in diff.split("\n"):
         if line.startswith("diff --git"):
             file_name = line.split(" b/")[-1]
-            skip = not file_name.startswith("PR-Scanner/")
 
-        if not skip:
-            result.append(line)
-
-    return "\n".join(result)
-
-
-def ignore_scanner_files(diff):
-    result = []
-    skip = False
-
-    for line in diff.split("\n"):
-        if line.startswith("diff --git"):
-            file_name = line.split(" b/")[-1]
-            skip = file_name.startswith("app/") or file_name.startswith(".github/")
+            if file_name.startswith("PR-Scanner/"):
+                skip = False
+            else:
+                skip = True
 
         if not skip:
             result.append(line)
@@ -57,32 +46,6 @@ def parse_diff(diff):
     return files
 
 
-def get_explanation(problem):
-    explanations = {
-        "Hardcoded credentials": "Secrets in code can be exposed publicly and lead to security breaches.",
-        "Open to internet": "Allowing 0.0.0.0/0 exposes your service to the entire internet.",
-        "Public access enabled": "Public resources can be accessed or modified by anyone.",
-        "Using latest image": "Latest tags are unstable and can break builds anytime.",
-        "Privileged container": "Privileged containers have full access to host system.",
-        "Secret in YAML": "Sensitive data in YAML can be leaked in version control.",
-        "Public S3 bucket": "Public buckets can leak data to anyone."
-    }
-    return explanations.get(problem, "This is not a recommended practice.")
-
-
-def get_fix(problem):
-    fixes = {
-        "Hardcoded credentials": "Use environment variables.\nExample:\n❌ password=admin123\n✅ password=os.getenv('DB_PASSWORD')",
-        "Open to internet": "Restrict CIDR range.\nExample:\n❌ 0.0.0.0/0\n✅ 192.168.1.0/24",
-        "Public access enabled": "Disable public access.\nExample:\n❌ public-read\n✅ private",
-        "Using latest image": "Pin image version.\nExample:\n❌ nginx:latest\n✅ nginx:1.25",
-        "Privileged container": "Remove privileged mode.\nExample:\n❌ privileged: true\n✅ remove this line",
-        "Secret in YAML": "Use Kubernetes secrets instead of plain text.",
-        "Public S3 bucket": "Set ACL to private and block public access."
-    }
-    return fixes.get(problem, "Follow security best practices.")
-
-
 def analyze_files(files):
     issues = []
     warnings = []
@@ -100,74 +63,87 @@ def analyze_files(files):
             code_lower = code.lower()
 
             if "0.0.0.0/0" in code:
-                add_unique(issues, (file, line_no, code, "Open to internet"))
+                add_unique(issues, (file, line_no, code, "Open to internet", "Restrict CIDR range"))
 
-            if "public-read" in code or "public-read-write" in code:
-                add_unique(issues, (file, line_no, code, "Public access enabled"))
+            if "public-read" in code:
+                add_unique(issues, (file, line_no, code, "Public access enabled", "Disable public access"))
 
-            if "password=" in code_lower or "admin123" in code_lower:
-                add_unique(issues, (file, line_no, code, "Hardcoded credentials"))
-
-            if "privileged: true" in code_lower:
-                add_unique(issues, (file, line_no, code, "Privileged container"))
-
-            if file.lower().endswith("dockerfile") and "latest" in code_lower:
-                add_unique(issues, (file, line_no, code, "Using latest image"))
-
-            if (file.endswith(".yaml") or file.endswith(".yml")) and "password" in code_lower:
-                add_unique(issues, (file, line_no, code, "Secret in YAML"))
-
-            if file.endswith(".tf") and "public-read" in code:
-                add_unique(issues, (file, line_no, code, "Public S3 bucket"))
+            if "password=" in code_lower:
+                add_unique(issues, (file, line_no, code, "Hardcoded credentials", "Use secrets manager"))
 
             if "latest" in code_lower:
-                warnings.append((file, line_no, code, "Using latest tag"))
-
-            if "versioning" in code_lower and "false" in code_lower:
-                warnings.append((file, line_no, code, "Versioning disabled"))
+                add_unique(warnings, (file, line_no, code, "Using latest tag", "Pin version"))
 
             if "aws_instance" in code_lower:
-                suggestions.append((file, line_no, "Use IAM roles"))
+                add_unique(suggestions, (file, line_no, "Use IAM roles", "Avoid static credentials"))
 
     return issues, warnings, suggestions
 
 
+def calculate_score(issues, warnings):
+    score = 10 - (len(issues) * 2) - len(warnings)
+    return max(score, 1)
+
+
+def file_summary(issues):
+    summary = {}
+    for item in issues:
+        file = item[0]
+        summary[file] = summary.get(file, 0) + 1
+
+    text = "## 📁 File-wise Issues\n"
+    for f, count in summary.items():
+        text += f"- {f}: {count} issues\n"
+
+    return text
+
+
+def format_review(issues, warnings, suggestions):
+    score = calculate_score(issues, warnings)
+
+    return f"""
+## 🤖 AI DevOps Review
+
+### 📊 Score: {score}/10
+
+{file_summary(issues)}
+
+🔴 Critical Issues: {len(issues)}
+🟠 Warnings: {len(warnings)}
+🟢 Suggestions: {len(suggestions)}
+""".strip()
+
+
 if __name__ == "__main__":
+    print("🚀 Running AI Reviewer...")
+
     full_diff = get_changed_code()
     full_diff = keep_only_target_folder(full_diff)
-    full_diff = ignore_scanner_files(full_diff)
 
     files = parse_diff(full_diff)
 
-    issues, warnings, suggestions = analyze_files(files)
-
-    if not issues and not warnings and not suggestions:
-        review = "No relevant DevOps changes found."
+    if not files or all(len(v) == 0 for v in files.values()):
+        review = "✅ No relevant DevOps changes found."
     else:
-        review = "## 🤖 AI DevOps Review\n"
+        issues, warnings, suggestions = analyze_files(files)
+        review = format_review(issues, warnings, suggestions)
 
-    for file, line, code, problem in issues:
-        try:
-            message = f"""❌ {problem}
+        for file, line, code, problem, solution in issues[:10]:
+            try:
+                post_inline_comment(file, line, f"❌ {problem}\n💡 {solution}")
+            except:
+                pass
 
-🧠 Why:
-{get_explanation(problem)}
+        labels = []
+        if issues:
+            labels.append("security-risk")
+        if warnings:
+            labels.append("needs-fix")
 
-🛠 Fix:
-{get_fix(problem)}
-"""
-            post_inline_comment(file, line, message)
-        except:
-            pass
+        if labels:
+            add_labels(labels)
 
+    print("\n=== REVIEW ===")
     print(review)
+
     post_pr_comment(review)
-
-    labels = []
-    if issues:
-        labels.append("security-risk")
-    if warnings:
-        labels.append("needs-fix")
-
-    if labels:
-        add_labels(labels)
