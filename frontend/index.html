@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI DevOps Reviewer</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 30px;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    h2 {
+      color: #38bdf8;
+    }
+
+    input {
+      margin-top: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #22c55e;
+      border: none;
+      cursor: pointer;
+      margin-top: 10px;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #16a34a;
+    }
+
+    .card {
+      background: #020617;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+      border: 1px solid #1e293b;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>🚀 AI DevOps Reviewer</h2>
+
+<input type="file" id="fileInput" />
+<br>
+<button onclick="upload()">Upload & Analyze</button>
+
+<div class="card" id="result">
+  Waiting for input...
+</div>
+
+<script>
+async function upload() {
+  const file = document.getElementById("fileInput").files[0];
+
+  if (!file) {
+    alert("Select file first");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  document.getElementById("result").innerText = "⏳ Processing... Please wait (20–30 sec)";
+
+  try {
+    const res = await fetch("/upload", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+
+    let output = "";
+
+    if (data.review) {
+      output += "📊 AI DEVOPS REVIEW\n";
+      output += "================================\n";
+      output += data.review;
+    } else {
+      output = "❌ No review found";
+    }
+
+    if (data.pr_url) {
+      output += "\n\n================================\n";
+      output += "🔗 VIEW FULL PR:\n";
+      output += data.pr_url;
+    }
+
+    document.getElementById("result").innerText = output;
+
+  } catch (err) {
+    document.getElementById("result").innerText = "❌ Error: " + err;
+  }
+}
+</script>
+
+</body>
+</html>
