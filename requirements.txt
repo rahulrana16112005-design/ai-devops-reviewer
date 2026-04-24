@@ -1,2 +1,9 @@
 fastapi
 uvicorn
+<<<<<<< HEAD
+=======
+requests
+python-multipart
+openai
+python-dotenv
+>>>>>>> cceb17b (fix: restore required dependencies)
